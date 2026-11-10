@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Compilation et tests
+        run: dotnet test tests/StageTrack.Api.Tests/StageTrack.Api.Tests.csproj --logger "console;verbosity=normal"
+      - name: Image Docker
+        run: docker build -t stagetrack-api .

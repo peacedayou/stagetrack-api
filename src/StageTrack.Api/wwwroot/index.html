@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StageTrack – suivi de candidatures</title>
+  <style>
+    :root { --fond: #f6f7f9; --texte: #1d2433; --accent: #2457c5; --bord: #dde1e8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--fond); color: var(--texte); }
+    header { background: var(--texte); color: #fff; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+    header a { color: #fff; }
+    main { max-width: 1000px; margin: 0 auto; padding: 1.5rem; display: grid; gap: 1.5rem; }
+    section { background: #fff; border: 1px solid var(--bord); border-radius: 8px; padding: 1rem 1.25rem; }
+    h2 { margin-top: 0; font-size: 1.1rem; }
+    form { display: flex; flex-wrap: wrap; gap: .5rem; }
+    input, select, button { font: inherit; padding: .45rem .6rem; border: 1px solid var(--bord); border-radius: 6px; }
+    button { background: var(--accent); color: #fff; border: none; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .5rem; border-bottom: 1px solid var(--bord); }
+    .stats { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .stat { flex: 1; min-width: 120px; text-align: center; }
+    .stat b { display: block; font-size: 1.6rem; }
+    .erreur { color: #b00020; }
+  </style>
+</head>
+<body>
+<header>
+  <strong>StageTrack</strong>
+  <a href="/swagger">Documentation de l'API</a>
+</header>
+<main>
+  <section>
+    <h2>Statistiques</h2>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section>
+    <h2>Ajouter une entreprise</h2>
+    <form id="form-entreprise">
+      <input name="nom" placeholder="Nom" required>
+      <input name="ville" placeholder="Ville">
+      <button>Ajouter</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Ajouter une candidature</h2>
+    <form id="form-candidature">
+      <input name="poste" placeholder="Poste" required>
+      <select name="entrepriseId" id="liste-entreprises" required></select>
+      <button>Ajouter</button>
+    </form>
+    <p class="erreur" id="erreur"></p>
+  </section>
+
+  <section>
+    <h2>Mes candidatures</h2>
+    <table>
+      <thead><tr><th>Poste</th><th>Entreprise</th><th>Envoi</th><th>Statut</th></tr></thead>
+      <tbody id="candidatures"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+  const STATUTS = ["AEnvoyer", "Envoyee", "Entrevue", "Offre", "Refusee"];
+  const LIBELLES = { AEnvoyer: "À envoyer", Envoyee: "Envoyée", Entrevue: "Entrevue", Offre: "Offre", Refusee: "Refusée" };
+  const erreur = document.getElementById("erreur");
+
+  async function api(url, options = {}) {
+    const reponse = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
+    if (!reponse.ok) {
+      const detail = await reponse.json().catch(() => ({}));
+      throw new Error(detail.title || `Erreur ${reponse.status}`);
+    }
+    return reponse.status === 204 ? null : reponse.json();
+  }
+
+  // textContent évite d'injecter du HTML saisi par l'utilisateur (XSS)
+  function cellule(texte) {
+    const td = document.createElement("td");
+    td.textContent = texte ?? "";
+    return td;
+  }
+
+  async function chargerEntreprises() {
+    const entreprises = await api("/api/entreprises");
+    const liste = document.getElementById("liste-entreprises");
+    liste.replaceChildren(...entreprises.map(e => new Option(e.nom, e.id)));
+  }
+
+  async function chargerCandidatures() {
+    const candidatures = await api("/api/candidatures");
+    const corps = document.getElementById("candidatures");
+    corps.replaceChildren(...candidatures.map(c => {
+      const tr = document.createElement("tr");
+      const choix = document.createElement("select");
+      STATUTS.forEach(s => choix.add(new Option(LIBELLES[s], s, false, s === c.statut)));
+      choix.onchange = async () => {
+        await api(`/api/candidatures/${c.id}/statut`, { method: "PATCH", body: JSON.stringify({ statut: choix.value }) });
+        rafraichir();
+      };
+      const tdStatut = document.createElement("td");
+      tdStatut.append(choix);
+      tr.append(cellule(c.poste), cellule(c.entreprise), cellule(c.dateEnvoi), tdStatut);
+      return tr;
+    }));
+  }
+
+  async function chargerStats() {
+    const s = await api("/api/statistiques");
+    const blocs = [["Total", s.total], ...STATUTS.map(x => [LIBELLES[x], s.parStatut[x]]), ["Taux d'entrevue", s.tauxEntrevue + " %"]];
+    document.getElementById("stats").replaceChildren(...blocs.map(([nom, valeur]) => {
+      const div = document.createElement("div");
+      div.className = "stat";
+      const b = document.createElement("b");
+      b.textContent = valeur;
+      div.append(b, nom);
+      return div;
+    }));
+  }
+
+  function rafraichir() {
+    erreur.textContent = "";
+    return Promise.all([chargerEntreprises(), chargerCandidatures(), chargerStats()])
+      .catch(e => erreur.textContent = e.message);
+  }
+
+  document.getElementById("form-entreprise").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    try {
+      await api("/api/entreprises", { method: "POST", body: JSON.stringify({ nom: f.get("nom"), ville: f.get("ville") || null }) });
+      ev.target.reset();
+      rafraichir();
+    } catch (e) { erreur.textContent = e.message; }
+  };
+
+  document.getElementById("form-candidature").onsubmit = async (ev) => {
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    try {
+      await api("/api/candidatures", { method: "POST", body: JSON.stringify({ poste: f.get("poste"), entrepriseId: Number(f.get("entrepriseId")) }) });
+      ev.target.reset();
+      rafraichir();
+    } catch (e) { erreur.textContent = e.message; }
+  };
+
+  rafraichir();
+</script>
+</body>
+</html>
