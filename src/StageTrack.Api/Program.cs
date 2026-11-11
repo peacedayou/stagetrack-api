@@ -18,6 +18,12 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHealthChecks();
 
+// CORS : origines autorisées lues dans la configuration (Cors:Origins),
+// par exemple l'interface StageTrack Web servie depuis un autre domaine.
+var origines = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+    p.WithOrigins(origines).AllowAnyHeader().WithMethods("GET", "POST", "PATCH", "DELETE")));
+
 var app = builder.Build();
 
 // Crée la base au premier démarrage (projet de démonstration : pas de migrations)
@@ -28,6 +34,8 @@ using (var scope = app.Services.CreateScope())
 
 app.UseSwagger();
 app.UseSwaggerUI();
+
+app.UseCors();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
