@@ -140,4 +140,19 @@ public class ApiTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _client.GetAsync("/health")).StatusCode);
     }
+
+    [Fact]
+    public async Task Cors_autorise_l_interface_web_et_refuse_les_autres_origines()
+    {
+        var ok = new HttpRequestMessage(HttpMethod.Get, "/api/statistiques");
+        ok.Headers.Add("Origin", "https://peacedayou.github.io");
+        var reponseOk = await _client.SendAsync(ok);
+        Assert.Equal("https://peacedayou.github.io",
+            reponseOk.Headers.GetValues("Access-Control-Allow-Origin").Single());
+
+        var refus = new HttpRequestMessage(HttpMethod.Get, "/api/statistiques");
+        refus.Headers.Add("Origin", "https://site-inconnu.example");
+        var reponseRefus = await _client.SendAsync(refus);
+        Assert.False(reponseRefus.Headers.Contains("Access-Control-Allow-Origin"));
+    }
 }
